@@ -59,6 +59,11 @@ public class World {
 		return validPos((int)loc.x, (int)loc.y);
 	}
 
+	public Tile GetTileAt(Int2 location)
+	{
+		return GetTileAt(location.x, location.y);
+	}
+
 	public Tile GetTileAt(int x, int y)
 	{
 		Tile result = null;

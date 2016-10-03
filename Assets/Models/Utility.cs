@@ -18,6 +18,11 @@ public class Int2
 	{
 		return x + "," + y;
 	}
+
+	public int CompareTo(Int2 given)
+	{
+		return x.CompareTo(given.x) + y.CompareTo(given.y);
+	}
 }
 
 public class LocationPair
@@ -91,6 +96,16 @@ public class Directions
 			Direction.South,
 			Direction.West
 		};
+	}
+
+	public static List<Direction> ValidDirectionList()
+	{
+		List<Direction> results = new List<Direction>();
+		foreach (Direction dir in ValidDirections())
+		{
+			results.Add(dir);
+		}
+		return results;
 	}
 
 	public static Direction RandomDirection()
@@ -173,5 +188,10 @@ public class Directions
 
 		Debug.LogError("invalid direction given.");
 		return start;
+	}
+
+	public static Int2 InDirection(Int2 start, Direction dir)
+	{
+		InDirectionForDistance(start, dir, 1);
 	}
 }
