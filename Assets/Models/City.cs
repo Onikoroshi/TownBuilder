@@ -12,6 +12,12 @@ public class City
 
 	public City(World givenWorld)
 	{
+		if (givenWorld == null || !givenWorld.filled)
+		{
+			Debug.LogError("given world is empty");
+			return;
+		}
+
 		world = givenWorld;
 
 		startRoad = new Tile();
@@ -33,13 +39,16 @@ public class City
 		StructureBuilder houser = new StructureBuilder(this);
 
 		offices = new List <CityOffice>();
-		offices.Add(new UrbanPlanningOffice(this, roadB: roadie, structureB: houser));
+		UrbanPlanningOffice urbanPlanner = new UrbanPlanningOffice(this, roadB: roadie, structureB: houser);
+		offices.Add(urbanPlanner);
 	}
 
 	public void handleNextBill()
 	{
+//		Debug.LogError("asking " + offices.Count + " offices to handle a bill");
 		foreach (var office in offices)
 		{
+//			if (office == null) Debug.LogError("this office is null!");
 			office.HandleNextUnfinishedBill();
 		}
 	}

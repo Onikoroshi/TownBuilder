@@ -9,7 +9,7 @@ public class WorldController : MonoBehaviour
 
 	void Start()
 	{
-		World = new World(100, 100);
+		World = new World(10, 10);
 
 		int tilesCreated = 0;
 		for ( int x = 0; x < World.Width; x++ )
@@ -58,6 +58,8 @@ public class WorldController : MonoBehaviour
 		Debug.LogError("World initialized with " + tilesCreated + " tiles.");
 
 		World.initializeObstacles();
+
+		World.filled = true;
 	}
 
 	float randomizeTileTimer = 2f;

@@ -73,11 +73,11 @@ public class Flooder
 
 		if (openNodes.Count <= 0) return null;
 
-		if (openChanged)
-		{
-			openNodes.Sort((x, y ) => CompareNodes(x, y));
-			openChanged = false;
-		}
+//		if (openChanged)
+//		{
+//			openNodes.Sort((x, y ) => CompareNodes(x, y));
+//			openChanged = false;
+//		}
 
 		return openNodes[0];
 	}

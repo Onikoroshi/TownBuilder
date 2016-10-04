@@ -10,6 +10,8 @@ public class World {
 	public int Width { get; private set; }
 	public int Height { get; private set; }
 
+	public bool filled = false;
+
 	public World(int width = 100, int height = 100)
 	{
 		this.Width = width;
@@ -18,6 +20,7 @@ public class World {
 		tiles = new Tile[width, height];
 
 		Debug.LogError("World created empty.");
+		filled = false;
 	}
 
 	public Tile initalizeTileAt(int x, int y)
@@ -80,9 +83,9 @@ public class World {
 	private void randomizeObstacles(int requestedNumber = -1)
 	{
 		if (requestedNumber < 0)
-			requestedNumber = Random.Range(1, (int)(Height*Width*0.001f));
+			requestedNumber = 2;
 
-		Debug.LogError("randomizing " + requestedNumber + " obstacles.");
+//		Debug.LogError("randomizing " + requestedNumber + " obstacles.");
 
 		List<Vector2> blocked = new List<Vector2>();
 		for ( int i = 0; i < requestedNumber; i++ )

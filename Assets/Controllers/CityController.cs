@@ -27,7 +27,7 @@ public class CityController : MonoBehaviour
 		if (world == null || city == null) return;
 
 		if (Time.time > nextActionTime ) {
-			Debug.LogError("using step speed " + stepSpeed);
+//			Debug.LogError("using step speed " + stepSpeed);
 			nextActionTime = Time.time + stepSpeed;
 
 			city.handleNextBill();
@@ -47,12 +47,13 @@ public class CityController : MonoBehaviour
 			WorldController controllerObject = controllerGameObject.GetComponent<WorldController>();
 			if (controllerObject != null)
 			{
-				world = controllerObject.World;
-				if (world != null)
+				World consider = controllerObject.World;
+				if (consider != null && consider.filled)
 				{
+					world = consider;
 					city = new City(world);
 					stepSpeed = 30f / (float)(world.Width * world.Height);
-					Debug.LogError("set step speed to " + stepSpeed);
+//					Debug.LogError("set step speed to " + stepSpeed);
 				}
 			} 
 		}

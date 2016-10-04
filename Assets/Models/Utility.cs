@@ -192,6 +192,6 @@ public class Directions
 
 	public static Int2 InDirection(Int2 start, Direction dir)
 	{
-		InDirectionForDistance(start, dir, 1);
+		return InDirectionForDistance(start, dir, 1);
 	}
 }

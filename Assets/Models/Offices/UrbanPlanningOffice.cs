@@ -8,96 +8,177 @@ public class UrbanPlanningOffice : CityOffice
 {
 	public RoadBuilder roader;
 	public StructureBuilder structurer;
-	public bool roadSpaceAvailable, buildingSpaceAvailable;
-	public Tile cityCenter;
-	public List<RoadNode> expandableRoads;
+	public List<RoadNode> buildableRoads, splittingRoads, growableRoads;
+	public SeekOpenSpace seeker;
 
 	public UrbanPlanningOffice( City givenCity, RoadBuilder roadB = null, StructureBuilder structureB = null ) : base(givenCity )
 	{
 		roader = (roadB == null) ? new RoadBuilder(city) : roadB;
 		structurer = (structureB == null) ? new StructureBuilder(city) : structureB;
 
-		roadSpaceAvailable = city.startRoad != null && city.startRoad.HasRoad() && city.startRoad.Neighbors().FindIndex(elem => elem.IsBuildable()) >= 0;
-		buildingSpaceAvailable = roadSpaceAvailable;
+		Road origin = new Road(givenCity.startRoad);
 
-		expandableRoads = new List<RoadNode>();
-		List<Direction> must = new List<Direction>();
-		must.Add(Direction.East);
-		must.Add(Direction.West);
-		List<Direction> can = new List<Direction>();
-		int[] depths = new int[4] { -1, -1, -1, -1 };
-		RoadNode firstNode = new RoadNode((Road)city.startRoad.Surface, must, can, depths);
-		if (firstNode.IsAvailable())
-		{
-			expandableRoads.Add(firstNode);
-		}
+		seeker = new SeekOpenSpace(givenCity.world, givenCity.startRoad.Loc());
+
+		buildableRoads = new List<RoadNode>();
+		splittingRoads = new List<RoadNode>();
+		growableRoads = new List<RoadNode>();
+
+		SpaceCounter startCounter = seeker.GetCounterAt(givenCity.startRoad.Loc());
+		int[] splitNums = new int[4] { 0, 0, 0, 0 };
+		Direction[] splitEverywhere = Directions.ValidDirections();
+		RoadNode startNode = new RoadNode(origin, startCounter, Direction.None, splitEverywhere, splitNums);
+
+		splittingRoads.Add(startNode);
+	}
+
+	private bool CanContinue()
+	{
+		return (buildableRoads.Count > 0) || (splittingRoads.Count > 0) || (growableRoads.Count > 0);
 	}
 
 	private void HandleStructureRequest(StructureRequest request)
 	{
 		Debug.LogError("handling a structure request " + request.ToString());
 
-		if (expandableRoads.Count <= 0) return;
+		if (!CanContinue()) return;
 
-		LocationPair bounds = null;
-
-		Road success = null;
 		List<RoadNode> toRemove = new List<RoadNode>();
-		foreach (RoadNode toConsider in expandableRoads)
+		RoadNode toConsider = null;
+		Direction buildableDir = Direction.None;
+		for (int i = 0; i < buildableRoads.Count; i++)
 		{
-			if (!toConsider.IsAvailable())
+			toConsider = buildableRoads[i];
+
+			if (!toConsider.IsAvailableToBuild())
 			{
 				toRemove.Add(toConsider);
-				continue;
 			}
-
-			bounds = toConsider.TryToBuild(request.size);
-			if (bounds != null)
+			else
 			{
-				success = (Road)(toConsider.ground.Surface);
-				break;
-			}
-		}
-
-		foreach (RoadNode removed in toRemove)
-		{
-			expandableRoads.RemoveAll((elem) => (elem == removed));
-		}
-
-		if (bounds == null)
-		{
-			bool someoneChanged = false;
-			foreach (RoadNode toGrow in expandableRoads)
-			{
-				RoadNode expanded = toGrow.Grow();
-				if (expanded != null)
+				buildableDir = toConsider.DirWithRoom(request.size);
+				if (buildableDir != Direction.None)
 				{
-					expandableRoads.Add(expanded);
-					someoneChanged = true;
 					break;
 				}
 			}
 
-			if (!someoneChanged)
-			{
-				foreach (RoadNode toSplit in expandableRoads)
-				{
-					RoadNode split = toSplit.Split();
-					if (split != null)
-					{
-						expandableRoads.Add(split);
-						someoneChanged = true;
-						break;
-					}
-				}
-			}
+			toConsider = buildableRoads[0];
+		}
 
-			if (someoneChanged) request.Reject();
+		foreach (RoadNode removing in toRemove)
+		{
+			buildableRoads.RemoveAll((elem ) => (elem.ground.Loc() == removing.ground.Loc()));
+		}
+
+		if (toConsider != null)
+		{
+//			buildStructure(Road connectedTo, Direction directionFromRoad, Structure.Type givenType, int width, int depth)
+			structurer.buildStructure((Road)(toConsider.ground.Surface), buildableDir, Structure.Type.House, request.size.x, request.size.y);
 		}
 		else
 		{
-//			buildStructure(Road connectedTo, Direction directionFromRoad, Structure.Type givenType, LocationPair locals)
-			structurer.buildStructure(success, bounds.toHere, Structure.Type.House, bounds);
+			toRemove = new List<RoadNode>();
+			RoadNode success = null;
+
+			for ( int i = 0; i < splittingRoads.Count; i++ )
+			{
+				RoadNode considering = splittingRoads[i];
+
+				success = considering.Split();
+				if (success != null)
+				{
+					if (success.IsAvailableToBuild())
+					{
+						buildableRoads.Add(success);
+					}
+
+					if (success.IsAvailableToGrow())
+					{
+						growableRoads.Add(success);
+					}
+
+					if (success.IsAvailableToSplit())
+					{
+						splittingRoads.Add(success);
+					}
+				}
+
+				if (considering.IsAvailableToBuild() && !(buildableRoads.FindIndex((elem) => (elem.ground.Loc() == considering.ground.Loc())) < 0))
+				{
+					buildableRoads.Add(considering);
+				}
+
+				if (considering.IsAvailableToGrow() && !(growableRoads.FindIndex((elem) => (elem.ground.Loc() == considering.ground.Loc())) < 0))
+				{
+					growableRoads.Add(considering);
+				}
+
+				if (!considering.IsAvailableToSplit())
+				{
+					toRemove.Add(considering);
+				}
+
+				if (success != null) break;
+			}
+
+			foreach (RoadNode removing in toRemove)
+			{
+				splittingRoads.RemoveAll((elem ) => (elem.ground.Loc() == removing.ground.Loc()));
+			}
+
+			if (success == null)
+			{
+				toRemove = new List<RoadNode>();
+
+				for ( int i = 0; i < growableRoads.Count; i++ )
+				{
+					RoadNode considering = growableRoads[i];
+
+					success = considering.Grow();
+					if (success != null)
+					{
+						if (success.IsAvailableToBuild())
+						{
+							buildableRoads.Add(success);
+						}
+
+						if (success.IsAvailableToGrow())
+						{
+							growableRoads.Add(success);
+						}
+
+						if (success.IsAvailableToSplit())
+						{
+							splittingRoads.Add(success);
+						}
+					}
+
+					if (considering.IsAvailableToBuild() && !(buildableRoads.FindIndex((elem ) => (elem.ground.Loc() == considering.ground.Loc())) < 0))
+					{
+						buildableRoads.Add(considering);
+					}
+
+					if (considering.IsAvailableToSplit() && !(splittingRoads.FindIndex((elem ) => (elem.ground.Loc() == considering.ground.Loc())) < 0))
+					{
+						splittingRoads.Add(considering);
+					}
+
+					if (!considering.IsAvailableToGrow())
+					{
+						toRemove.Add(considering);
+					}
+
+					if (success != null) break;
+				}
+
+				foreach (RoadNode removing in toRemove)
+				{
+					growableRoads.RemoveAll((elem ) => (elem.ground.Loc() == removing.ground.Loc()));
+				}
+			}
+
+			if (success == null) request.Reject();
 		}
 	}
 
@@ -132,7 +213,7 @@ public class UrbanPlanningOffice : CityOffice
 	{
 		Int2 size = new Int2(1, 1);
 
-		if (roadSpaceAvailable && buildingSpaceAvailable && expandableRoads.Count > 0)
+		if (CanContinue())
 		{
 			bills.Enqueue(new StructureRequest(this, CityBill.BillObject.House, size));
 		}
@@ -141,136 +222,144 @@ public class UrbanPlanningOffice : CityOffice
 	public class RoadNode
 	{
 		public Tile ground;
-		public List<Direction> mustGrowIn, canGrowIn;
-		public int[] availableDepths;
+		public SpaceCounter counter;
+		public List<Direction> splitIn, buildIn;
+		public Direction growIn;
+		public int[] spacesTilSplit;
 
-		public RoadNode(Road given)
+		public RoadNode(Road givenRoad, SpaceCounter givenCounter, Direction toGrowIn, Direction[] toSplitIn, int[] givenSplitDists)
 		{
-			ground = (given != null) ? given.foundation : null;
+			ground = (givenRoad != null) ? givenRoad.foundation : null;
+			counter = givenCounter;
+			growIn = toGrowIn;
+			spacesTilSplit = givenSplitDists;
 
-			mustGrowIn = new List<Direction>();
-			canGrowIn = new List<Direction>();
-			availableDepths = new int[Directions.ValidDirections().Length];
-			for (int i = 0; i < availableDepths.Length; i++)
+			splitIn = new List<Direction>();
+			if (spacesTilSplit.Length > 0)
 			{
-				availableDepths[i] = -1;
+				foreach (Direction dir in toSplitIn)
+				{
+					if (spacesTilSplit[(int)(dir)] == 0) splitIn.Add(dir);
+				}
+			}
+
+			buildIn = new List<Direction>();
+			foreach (Direction dir in Directions.ValidDirections())
+			{
+				if (dir != growIn && splitIn.FindIndex((elem) => (elem == dir)) < 0) buildIn.Add(dir);
 			}
 		}
 
-		public RoadNode(Road given, Direction[] givenMustGrowIn, Direction[] givenCanGrowIn, int[] givenDepths)
+		public RoadNode(Road givenRoad, SpaceCounter givenCounter, Direction toGrowIn) : this(givenRoad, givenCounter, toGrowIn, null, new int[0])
 		{
-			ground = (given != null) ? given.foundation : null;
-
-			mustGrowIn = new List<Direction>(givenMustGrowIn);
-			canGrowIn = new List<Direction>(givenCanGrowIn);
-			availableDepths = givenDepths;
+			calculateSpacesTilSplit();
 		}
 
-		public RoadNode(Road given, List<Direction> givenMustGrowIn, List<Direction> givenCanGrowIn, int[] givenDepths)
+		public void calculateSpacesTilSplit()
 		{
-			ground = (given != null) ? given.foundation : null;
-
-			mustGrowIn = givenMustGrowIn;
-			canGrowIn = givenCanGrowIn;
-			availableDepths = givenDepths;
+			if (counter == null)
+				spacesTilSplit = new int[0];
+			else
+				spacesTilSplit = counter.BestSplitLocForDir(growIn);
 		}
 
 		public RoadNode Grow()
 		{
-			if (ground == null) return null;
+			if (ground == null || growIn == Direction.None) return null;
 
-			Tile best = null;
-			Tile goodEnough = null;
-			foreach (Direction dir in mustGrowIn)
+			Tile target = ground.getDirection(growIn);
+
+			if (target.IsUnBuildable()) return null;
+
+			Road created = new Road(target);
+			int[] passSplits = new int[spacesTilSplit.Length];
+			List<Direction> futureSplits = new List<Direction>();
+			for ( int i = 0; i < spacesTilSplit.Length; i++ )
 			{
-				Tile current = ground.getDirection(dir);
-
-				if (current.IsBuildable())
-				{
-					Tile toConsider = ground.getDirection(Directions.oppositeOf(dir));
-					if (toConsider.HasRoad()) best = current;
-					else goodEnough = current;
-				}
+				passSplits[i] = spacesTilSplit[i] - 1;
+				if (passSplits[i] == 0) futureSplits.Add((Direction)(i));
 			}
-
-			if (best == null)
-			{
-				foreach (Direction dir in canGrowIn)
-				{
-					Tile current = ground.getDirection(dir);
-
-					if (current.IsBuildable())
-					{
-						Tile toConsider = ground.getDirection(Directions.oppositeOf(dir));
-						if (toConsider.HasRoad()) best = current;
-						else if (goodEnough == null) goodEnough = current;
-					}
-				}
-			}
-
-			Tile toUse = (best != null) ? best : goodEnough;
-
-			if (toUse == null)
-			{
-				Debug.LogError("Can't grow at " + ground.ToS());
-				return null;
-			}
-
-			Road created = new Road(toUse);
-			return new RoadNode(created, mustGrowIn, canGrowIn, availableDepths);
+			if (counter != null) counter.GetParent().blockLocation(target.Loc());
+			SpaceCounter nextCounter = counter.GetParent().GetCounterAt(target.Loc());
+			return new RoadNode(created, nextCounter, growIn, futureSplits.ToArray(), passSplits);
 		}
 
 		public RoadNode Split()
 		{
-			if (ground == null) return null;
+			if (ground == null || splitIn.Count <= 0) return null;
+
+			Debug.LogError("trying to split at " + ground.ToS() + " with " + splitIn.Count + " possibilities" );
 
 			Tile target = null;
 			Direction targetDir = Direction.None;
-			foreach (Direction dir in CanSplitIn())
+			while (splitIn.Count > 0)
 			{
-				Tile current = ground.getDirection(dir);
+				targetDir = splitIn[0];
+				Debug.LogError("trying to split " + targetDir.ToString());
+				Tile current = ground.getDirection(targetDir);
+				Debug.LogError("looking at " + current.ToS());
 				if (current.IsBuildable())
 				{
 					target = current;
-					targetDir = dir;
+					splitIn.RemoveAt(0);
 					break;
+				}
+				else
+				{
+					splitIn.RemoveAt(0);
 				}
 			}
 
 			if (target == null)
 			{
-				Debug.LogError("Can't split at " + ground.ToS());
+				Debug.LogError("Can't split at " + ground.ToS() + " - " + splitIn.Count + " possibilities now");
 				return null;
 			}
 
 			Road created = new Road(target);
-			List<Direction> targetMustGrow = new List<Direction>();
-			targetMustGrow.Add(targetDir);
-			return new RoadNode(created, targetMustGrow, canGrowIn, availableDepths);
+			Debug.LogError("is my counter null? " + (counter == null));
+			if (counter != null) counter.GetParent().blockLocation(target.Loc());
+			SpaceCounter nextCounter = counter.GetParent().GetCounterAt(target.Loc());
+			Debug.LogError("but the counter at " + target.Loc().ToString() + " is? " + (nextCounter == null));
+			int[] splitNums = nextCounter.BestSplitLocForDir(targetDir);
+			List<Direction> shouldSplit = new List<Direction>();
+			for ( int i = 0; i < splitNums.Length; i++ )
+			{
+				if (splitNums[i] == 0) shouldSplit.Add((Direction)(i));
+			}
+			return new RoadNode(created, nextCounter, targetDir, shouldSplit.ToArray(), splitNums);
 		}
 
-		public LocationPair TryToBuild(Int2 buildingSize)
+		public Direction DirWithRoom(Int2 buildingSize)
 		{
-			if (!IsAvailableToBuild() || !IsAvailableToGrow()) return null;
+			if (!IsAvailableToBuild()) return Direction.None;
 
-			List<Direction> availableDirs = CanSplitIn();
-
-			if (availableDirs.Count <= 0) return null;
-
-			LocationPair buildingBounds = null;
-			foreach (Direction dir in availableDirs)
+			Direction currDir = Direction.None;
+			while (buildIn.Count > 0)
 			{
-				Tile toConsider = ground.getDirection(dir);
-				buildingBounds = StructureBuilder.BoundsForStructure(toConsider, dir, buildingSize.x, buildingSize.y);
+				currDir = buildIn[0];
+				int availableWidth = TillSplitInDir(currDir);
 
-				if (buildingBounds != null)
+				if (availableWidth <= 0 || availableWidth < buildingSize.x) continue;
+
+				Int2 loc = ground.Loc();
+				int widthLeft = buildingSize.x;
+				while (widthLeft > 0)
 				{
-					availableDepths[(int)(dir)] = buildingBounds.SpaceInDirection(dir);
+					SpaceCounter currCounter = counter.GetParent().GetCounterAt(loc);
+					if (currCounter == null || currCounter.ScoreIn(currDir) < buildingSize.y) break;
+
+					widthLeft--;
+					loc = Directions.InDirection(loc, growIn);
+				}
+
+				if (widthLeft == 0)
+				{
 					break;
 				}
 			}
 
-			return buildingBounds;
+			return currDir;
 		}
 
 		public bool IsAvailable()
@@ -289,69 +378,65 @@ public class UrbanPlanningOffice : CityOffice
 
 		public bool IsAvailableToBuild()
 		{
-			if (ground == null) return false;
+			if (ground == null || counter == null || CanBuildOn().Count <= 0) return false;
 
-			Debug.LogError("checking build available at " + ground.ToS());
-			foreach (Direction dir in Directions.ValidDirections())
-			{
-				Tile current = ground.getDirection(dir);
-
-				if (mustGrowIn.FindIndex((elem) => (elem == dir)) < 0 && current.IsBuildable())
-				{
-					Debug.LogError(current.ToS() + " (" + dir.ToString() + ") is buildable.");
-					Debug.LogError("Left (" + Directions.leftOf(dir).ToString() + ") is buildable? " + current.getDirection(Directions.leftOf(dir)).IsBuildable());
-					Debug.LogError("Left (" + Directions.leftOf(dir).ToString() + ") is buildable? " + current.getDirection(Directions.leftOf(dir)).IsBuildable());
-					if (current.getDirection(Directions.leftOf(dir)).IsBuildable() || current.getDirection(Directions.rightOf(dir)).IsBuildable()) return true;
-				}
-			}
-
-			return false;
+			return true;
 		}
 
 		public bool IsAvailableToGrow()
 		{
-			if (ground == null) return false;
+			if (ground == null || growIn == Direction.None || splitIn.Count > 0 || ground.getDirection(growIn).IsUnBuildable()) return false;
 
-			foreach (Direction dir in mustGrowIn)
+			return true;
+		}
+
+		public bool IsAvailableToSplit()
+		{
+			if (ground == null || CanSplitTo().Count <= 0) return false;
+
+			return true;
+		}
+
+		public List<Tile> CanBuildOn()
+		{
+			List<Tile> results = new List<Tile>();
+
+			if (ground == null || buildIn.Count <= 0) return results;
+
+			foreach (Direction dir in buildIn)
 			{
 				Tile current = ground.getDirection(dir);
 
-				if (current.IsBuildable()) return true;
+				if (current.IsBuildable())
+				{
+					results.Add(current);
+				}
+				else
+				{
+					buildIn.RemoveAll((elem ) => (elem == dir));
+				}
 			}
 
-			foreach (Direction dir in canGrowIn)
+			return results;
+		}
+
+		public List<Tile> CanSplitTo()
+		{
+			List<Tile> results = new List<Tile>();
+
+			if (ground == null) return results;
+
+			foreach (Direction dir in splitIn)
 			{
 				Tile current = ground.getDirection(dir);
 
-				if (current.IsBuildable()) return true;
+				if (current.IsBuildable())
+				{
+					results.Add(current);
+				}
 			}
 
-			return false;
-		}
-
-		public void SetAvailableDepthIn(Direction dir, int givenDepth)
-		{
-			int index = (int)(dir);
-
-			if (index < 0 || index >= availableDepths.Length) return;
-
-			availableDepths[index] = givenDepth;
-		}
-
-		public int AvailableDepthIn(Direction dir)
-		{
-			int index = (int)(dir);
-
-			if (index < 0 || index >= availableDepths.Length) return -1;
-
-			return availableDepths[(int)(dir)];
-		}
-
-		public bool DepthFitsIn(Direction dir, int considerDepth)
-		{
-			int currentDepth = AvailableDepthIn(dir);
-
-			return currentDepth < 0 || currentDepth >= considerDepth;
+			return results;
 		}
 
 		public List<Tile> ConnectedTo()
@@ -370,68 +455,14 @@ public class UrbanPlanningOffice : CityOffice
 			return results;
 		}
 
-		public List<Direction> CanSplitIn()
+		public int TillSplitInDir(Direction given)
 		{
-			List<Direction> results = new List<Direction>();
+			if (spacesTilSplit.Length <= 0) return -1;
 
-			if (ground == null) return results;
+			int index = (int)(given);
+			if (index < 0 || index >= spacesTilSplit.Length) return -1;
 
-			foreach (Direction dir in Directions.ValidDirections())
-			{
-				if (mustGrowIn.FindIndex((elem ) => (elem == dir)) >= 0) continue;
-
-				Tile current = ground.getDirection(dir);
-
-				if (current.IsBuildable())
-				{
-					results.Add(dir);
-				}
-			}
-
-			return results;
-		}
-
-		public List<Tile> CanSplitTo()
-		{
-			List<Tile> results = new List<Tile>();
-
-			if (ground == null) return results;
-
-			foreach (Direction dir in Directions.ValidDirections())
-			{
-				Tile current = ground.getDirection(dir);
-
-				if (current.IsBuildable())
-				{
-					Tile toConsider = ground.getDirection(Directions.oppositeOf(dir));
-					if (toConsider.HasNoRoad()) results.Add(current);
-				}
-			}
-
-			return results;
-		}
-
-		public List<Tile> CanGrowTo()
-		{
-			List<Tile> results = new List<Tile>();
-
-			if (ground == null) return results;
-
-			foreach (Direction dir in mustGrowIn)
-			{
-				Tile current = ground.getDirection(dir);
-
-				if (current.IsBuildable()) results.Add(current);
-			}
-
-			foreach (Direction dir in canGrowIn)
-			{
-				Tile current = ground.getDirection(dir);
-
-				if (current.IsBuildable()) results.Add(current);
-			}
-
-			return results;
+			return spacesTilSplit[index];
 		}
 	}
 }
